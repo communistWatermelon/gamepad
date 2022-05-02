@@ -6,22 +6,20 @@
 // I used an Arduino Pro Micro board, but it should work with any ATmega32U4-based board, just set the right pins below.
 // If you want L3/R3, the PS button or analog sticks, you'll need to add them.
 
-#define PIN_UP        2
-#define PIN_DOWN      3
-#define PIN_LEFT      4
-#define PIN_RIGHT     5
-#define PIN_CROSS     6
-#define PIN_CIRCLE    7
-#define PIN_TRIANGLE  8
-#define PIN_SQUARE    9
+#define PIN_UP        4
+#define PIN_DOWN      14
+#define PIN_LEFT      5
+#define PIN_RIGHT     9
+#define PIN_CROSS     2
+#define PIN_CIRCLE    8
+#define PIN_TRIANGLE  3
+#define PIN_SQUARE    A0
 #define PIN_L1        10
-#define PIN_L2        14
-#define PIN_R1        16
-#define PIN_R2        15
-#define PIN_SELECT    18
-#define PIN_START     19
-
-int stickMode = 0; // 0 = dpad, 1 = left stick
+#define PIN_L2        A2
+#define PIN_R1        6
+#define PIN_R2        A1
+#define PIN_SELECT    15
+#define PIN_START     16
 
 // HID report descriptor taken from a HORI Fighting Stick V3
 // works out of the box with PC and PS3
@@ -95,6 +93,11 @@ static const uint8_t hidReportDescriptor[] PROGMEM = {
   0xC0,              // End Collection
 };
 
+bool wasLEFT = false;
+bool wasRIGHT = false;
+bool wasUP = false;
+bool wasDOWN = false;
+
 typedef struct {
   uint16_t buttons; // bits: 0 = square, 1 = cross, 2 = circle, 3 = triangle,
                     // 4 = L1, 5 = R1, 6 = L2, 7 = R2, 8 = select, 9 = start, 12 = PS
@@ -126,35 +129,8 @@ hid_report_t report;
 hid_report_t prevReport;
 
 void dpad(bool up, bool down, bool left, bool right) {
-  if (up && down) {
-    up = down = false;
-  }
-  if (left && right) {
-    left = right = false;
-  }
-
-  switch (stickMode) {
-    case 0:
-      if (up && !right && !left) report.dpadHat = 0;
-      else if (up && right) report.dpadHat = 1;
-      else if (right && !up && !down) report.dpadHat = 2;
-      else if (right && down) report.dpadHat = 3;
-      else if (down && !right && !left) report.dpadHat = 4;
-      else if (down && left) report.dpadHat = 5;
-      else if (left && !down && !up) report.dpadHat = 6;
-      else if (left && up) report.dpadHat = 7;
-      else report.dpadHat = 0x0f;
-
-      report.dpadRightAxis = right ? 0xff : 0x00;
-      report.dpadLeftAxis = left ? 0xff : 0x00;
-      report.dpadUpAxis = up ? 0xff : 0x00;
-      report.dpadDownAxis = down ? 0xff : 0x00;
-      break;
-    case 1:
-      report.leftStickXAxis = left ? 0x00 : (right ? 0xFF : 0x80);
-      report.leftStickYAxis = up ? 0x00 : (down ? 0xFF : 0x80);
-      break;
-  }
+  report.leftStickXAxis = fTwoIP(left, right, wasLEFT, wasRIGHT);
+  report.leftStickYAxis = fTwoIP(up, down, wasUP, wasDOWN);
 }
 
 void sendReport() {
@@ -182,11 +158,6 @@ void setup() {
   pinMode(PIN_R2, INPUT_PULLUP);
   pinMode(PIN_SELECT, INPUT_PULLUP);
   pinMode(PIN_START, INPUT_PULLUP);
-
-  // if left is held when plugged in, switch to left stick emulation mode
-  if (digitalRead(PIN_LEFT) == LOW) {
-    stickMode = 1;
-  }
 
   memset(&report, 0, sizeof(report));
   report.dpadHat = 0x0f;
@@ -257,4 +228,23 @@ void loop() {
   }
 
   sendReport();
+}
+
+uint8_t fTwoIP(bool isLOW, bool isHIGH, bool& wasLOW, bool& wasHIGH) {
+  uint8_t control = 128;
+  if (isLOW && wasHIGH)
+    control = 0x00;
+  if (isHIGH && wasLOW)
+    control = 0xFF;
+  if (!isLOW && isHIGH) {
+    control = 0xFF;
+    wasHIGH = true;
+    wasLOW = false;
+  }
+  if (isLOW && !isHIGH) {
+    control = 0x00;
+    wasLOW = true;
+    wasHIGH = false;
+  }
+  return control;
 }
